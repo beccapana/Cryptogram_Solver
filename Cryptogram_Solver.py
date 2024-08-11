@@ -4,11 +4,11 @@ from collections import Counter
 import concurrent.futures
 import nltk
 
-# Загрузите слова английского языка, если они не загружены
+# Download English words if they are not already downloaded
 nltk.download('words')
 english_words = set(nltk.corpus.words.words())
 
-# Типичные частоты букв, биграмм и триграмм в английском языке
+# Typical frequencies of letters, bigrams, and trigrams in English
 english_letter_freq = {
     'E': 12.02, 'T': 9.10, 'A': 8.12, 'O': 7.68, 'I': 7.31,
     'N': 6.95, 'S': 6.28, 'R': 6.02, 'H': 5.92, 'D': 4.32,
@@ -38,6 +38,7 @@ english_trigrams = {
 }
 
 def calculate_frequency(text, n=1):
+    """Calculate the frequency of n-grams in the given text."""
     text = text.upper()
     ngrams = [text[i:i+n] for i in range(len(text)-n+1) if all(c in string.ascii_uppercase for c in text[i:i+n])]
     counter = Counter(ngrams)
@@ -46,6 +47,7 @@ def calculate_frequency(text, n=1):
     return frequency
 
 def match_frequencies(cipher_freq, english_freq):
+    """Match cipher frequencies to English frequencies and create a mapping."""
     sorted_cipher_freq = sorted(cipher_freq.items(), key=lambda item: item[1], reverse=True)
     sorted_english_freq = sorted(english_freq.items(), key=lambda item: item[1], reverse=True)
     
@@ -58,6 +60,7 @@ def match_frequencies(cipher_freq, english_freq):
     return mapping
 
 def decrypt(text, mapping):
+    """Decrypt the text using the provided character mapping."""
     decrypted_text = []
     for char in text:
         if char.upper() in mapping:
@@ -71,6 +74,7 @@ def decrypt(text, mapping):
     return ''.join(decrypted_text)
 
 def calculate_score(text):
+    """Calculate the score of the decrypted text based on bigrams, trigrams, and valid words."""
     bigrams = calculate_frequency(text, n=2)
     trigrams = calculate_frequency(text, n=3)
     
@@ -89,16 +93,37 @@ def calculate_score(text):
     return score
 
 def generate_mapping():
+    """Generate a random character mapping."""
     letters = list(string.ascii_uppercase)
     random.shuffle(letters)
     return dict(zip(string.ascii_uppercase, letters))
 
 def mutate(mapping):
+    """Mutate the mapping by swapping two random characters."""
     keys = list(mapping.keys())
     a, b = random.sample(keys, 2)
     mapping[a], mapping[b] = mapping[b], mapping[a]
 
+def detect_simple_substitution(cipher_text, threshold=0.5):
+    """Detect if the text uses a simple substitution cipher based on letter frequencies."""
+    letter_freq = calculate_frequency(cipher_text, n=1)
+    sorted_cipher_freq = sorted(letter_freq.items(), key=lambda item: item[1], reverse=True)
+    
+    # Check if the frequencies match those of English letters
+    if len(sorted_cipher_freq) < len(english_letter_freq):
+        return None
+
+    # Assume the most frequent letter in the cipher is the most frequent in English
+    cipher_top = sorted_cipher_freq[0][0]
+    english_top = sorted(english_letter_freq.items(), key=lambda item: item[1], reverse=True)[0][0]
+
+    if sorted_cipher_freq[0][1] / sum(freq for _, freq in sorted_cipher_freq) > threshold:
+        return {cipher_top: english_top}
+    
+    return None
+
 def genetic_algorithm(cipher_text, iterations=1000, population_size=100, elite_size=10):
+    """Apply a genetic algorithm to find the best mapping for decrypting the cipher text."""
     def evaluate_mapping(mapping):
         decrypted_text = decrypt(cipher_text, mapping)
         return calculate_score(decrypted_text), mapping
@@ -117,11 +142,18 @@ def genetic_algorithm(cipher_text, iterations=1000, population_size=100, elite_s
         best_mapping = sorted_population[0][1]
         best_score = sorted_population[0][0]
         
-        # Лог текущей итерации и лучшего результата
+        # Log current iteration and best result
         if iteration % 100 == 0 or iteration == iterations:
-            print(f"Итерация {iteration}/{iterations}, текущий лучший результат: {best_score}")
-            print("Текущий лучший расшифрованный текст:")
+            print(f"Iteration {iteration}/{iterations}, current best score: {best_score}")
+            print("Current best decrypted text:")
             print(decrypt(cipher_text, best_mapping))
+        
+        # Check for simple substitution
+        simple_substitution = detect_simple_substitution(cipher_text)
+        if simple_substitution:
+            print("Simple substitution detected:")
+            print(simple_substitution)
+            best_mapping.update(simple_substitution)
         
         new_population = [mapping for score, mapping in sorted_population[:elite_size]]
         
@@ -130,25 +162,25 @@ def genetic_algorithm(cipher_text, iterations=1000, population_size=100, elite_s
             new_mapping = parent_mapping.copy()
             mutate(new_mapping)
             new_population.append(new_mapping)
-            
+        
         population = new_population
     
     return best_mapping
 
 def genetic_algorithm_with_restarts(cipher_text, restarts=3, iterations=1000, population_size=100, elite_size=10):
+    """Run the genetic algorithm with multiple restarts to find the best mapping."""
     best_mapping = None
     best_score = float('-inf')
     
     for restart in range(1, restarts + 1):
-        print(f"Запуск {restart}/{restarts}...")
+        print(f"Restart {restart}/{restarts}...")
         current_mapping = genetic_algorithm(cipher_text, iterations, population_size, elite_size)
         decrypted_text = decrypt(cipher_text, current_mapping)
         current_score = calculate_score(decrypted_text)
         
-        print(f"Лучший результат на запуске {restart}: {current_score}")
-        print("Лучший расшифрованный текст:")
+        print(f"Best result in restart {restart}: {current_score}")
+        print("Best decrypted text in this restart:")
         print(decrypted_text)
-        print("\n")
         
         if current_score > best_score:
             best_score = current_score
@@ -157,24 +189,26 @@ def genetic_algorithm_with_restarts(cipher_text, restarts=3, iterations=1000, po
     return best_mapping
 
 def main():
-    encrypted_text = input("Введите зашифрованный текст: ")
-    
-    # Запуск нового поиска
-    print("Запускаем новый поиск.")
-    best_mapping = genetic_algorithm_with_restarts(encrypted_text)
+    encrypted_text = input("Enter the encrypted text: ")
 
+    # Ask the user for the number of additional restarts
+    restarts = int(input("Enter the number of restarts: "))
+
+    # Run the algorithm with the specified number of restarts
+    best_mapping = genetic_algorithm_with_restarts(encrypted_text, restarts=restarts)
+    
     decrypted_text = decrypt(encrypted_text, best_mapping)
     
-    print("\nВозможный расшифрованный текст:")
+    print("\nPossible decrypted text:")
     print(decrypted_text)
 
-    print("\nДополнительные варианты расшифровки:")
+    print("\nAdditional decryption variants:")
     for i in range(1, 4):
         mutated_mapping = best_mapping.copy()
-        for _ in range(3):  # Применяем несколько мутаций для стабильности
+        for _ in range(3):  # Apply several mutations for stability
             mutate(mutated_mapping)
         alt_decryption = decrypt(encrypted_text, mutated_mapping)
-        print(f"Вариант {i}: {alt_decryption}")
+        print(f"Variant {i}: {alt_decryption}")
 
 if __name__ == "__main__":
     main()
