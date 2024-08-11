@@ -105,41 +105,72 @@ def genetic_algorithm(cipher_text, iterations=1000, population_size=100, elite_s
     
     population = [generate_mapping() for _ in range(population_size)]
     
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        for _ in range(iterations):
+    best_mapping = None
+    best_score = float('-inf')
+    
+    for iteration in range(1, iterations + 1):
+        with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = [executor.submit(evaluate_mapping, mapping) for mapping in population]
             scores_mappings = [future.result() for future in concurrent.futures.as_completed(futures)]
+        
+        sorted_population = sorted(scores_mappings, key=lambda item: item[0], reverse=True)
+        best_mapping = sorted_population[0][1]
+        best_score = sorted_population[0][0]
+        
+        # Лог текущей итерации и лучшего результата
+        if iteration % 100 == 0 or iteration == iterations:
+            print(f"Итерация {iteration}/{iterations}, текущий лучший результат: {best_score}")
+            print("Текущий лучший расшифрованный текст:")
+            print(decrypt(cipher_text, best_mapping))
+        
+        new_population = [mapping for score, mapping in sorted_population[:elite_size]]
+        
+        for _ in range(population_size - elite_size):
+            parent_mapping = random.choice(new_population)
+            new_mapping = parent_mapping.copy()
+            mutate(new_mapping)
+            new_population.append(new_mapping)
             
-            sorted_population = sorted(scores_mappings, key=lambda item: item[0], reverse=True)
-            best_mapping = sorted_population[0][1]
-            
-            new_population = [mapping for score, mapping in sorted_population[:elite_size]]
-            
-            for _ in range(population_size - elite_size):
-                parent_mapping = random.choice(new_population)
-                new_mapping = parent_mapping.copy()
-                mutate(new_mapping)
-                new_population.append(new_mapping)
-                
-            population = new_population
+        population = new_population
+    
+    return best_mapping
+
+def genetic_algorithm_with_restarts(cipher_text, restarts=3, iterations=1000, population_size=100, elite_size=10):
+    best_mapping = None
+    best_score = float('-inf')
+    
+    for restart in range(1, restarts + 1):
+        print(f"Запуск {restart}/{restarts}...")
+        current_mapping = genetic_algorithm(cipher_text, iterations, population_size, elite_size)
+        decrypted_text = decrypt(cipher_text, current_mapping)
+        current_score = calculate_score(decrypted_text)
+        
+        print(f"Лучший результат на запуске {restart}: {current_score}")
+        print("Лучший расшифрованный текст:")
+        print(decrypted_text)
+        print("\n")
+        
+        if current_score > best_score:
+            best_score = current_score
+            best_mapping = current_mapping
     
     return best_mapping
 
 def main():
     encrypted_text = input("Введите зашифрованный текст: ")
     
-    letter_freq = calculate_frequency(encrypted_text)
-    initial_mapping = match_frequencies(letter_freq, english_letter_freq)
-    optimized_mapping = genetic_algorithm(encrypted_text)
-    
-    decrypted_text = decrypt(encrypted_text, optimized_mapping)
+    # Запуск нового поиска
+    print("Запускаем новый поиск.")
+    best_mapping = genetic_algorithm_with_restarts(encrypted_text)
+
+    decrypted_text = decrypt(encrypted_text, best_mapping)
     
     print("\nВозможный расшифрованный текст:")
     print(decrypted_text)
 
     print("\nДополнительные варианты расшифровки:")
     for i in range(1, 4):
-        mutated_mapping = optimized_mapping.copy()
+        mutated_mapping = best_mapping.copy()
         for _ in range(3):  # Применяем несколько мутаций для стабильности
             mutate(mutated_mapping)
         alt_decryption = decrypt(encrypted_text, mutated_mapping)
