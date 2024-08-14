@@ -203,7 +203,7 @@ def main():
     print(decrypted_text)
 
     print("\nAdditional decryption variants:")
-    for i in range(1, 4):
+    for i in range(1, restarts+1):
         mutated_mapping = best_mapping.copy()
         for _ in range(3):  # Apply several mutations for stability
             mutate(mutated_mapping)
